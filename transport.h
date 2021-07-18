@@ -23,7 +23,6 @@ struct ConnectionInfo{
     uint8_t sender_src;
 };
 struct ConnectionInfo* connection_infos[NUM_DEVS];
-uint8_t next_transport_send_check = 0;
 uint8_t src = SRC;
 struct can_frame CTS;
 struct can_frame RTS;
@@ -131,25 +130,9 @@ void transport_setup(){
     memset(CTS.data, 0xff, 8);
     CTS.data[0] = 0x11;
     CTS.data[2] = 1;
-
-    //Init dummy data
-    DUMMY_DATA.can_dlc = 8;
-    DUMMY_DATA.can_id = 0x18EBFF00 | SRC;
-    DUMMY_DATA.data[0] = 0x1;
-    memcpy(&DUMMY_DATA.data[1], "ABCDEFG", 7);
 }
 
-void transport_handler(int new_frame){
-    if (new_frame == 0){
-        if (connection_infos[next_transport_send_check]->state == 3 && connection_infos[next_transport_send_check]->type == 0){ 
-            DUMMY_DATA.data[0] = (uint8_t)(connection_infos[next_transport_send_check]->data_pos/7) + 1;
-            can_write(&DUMMY_DATA, 1);
-            next_transport_send_check++;
-            if (next_transport_send_check == NUM_DEVS)
-                next_transport_send_check = 0;
-        }
-        return;
-    }
+void transport_handler(){
     //Get the sender
     src = read_frame.can_id & 0x000000ff;
 

@@ -24,11 +24,10 @@ void setup(char *iface_type, char *iface_num){
 }
 
 void loop() {
-    if (can_read(1) > 0){
+    if (can_read(0) > 0){
         parse_J1939();
-        transport_handler(1);
+        transport_handler();
     }
-    //transport_handler(0);
 }
 
 int main(int argc, char * argv[]){
