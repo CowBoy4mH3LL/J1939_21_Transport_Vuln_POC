@@ -2,9 +2,6 @@
 
 POC code for J1939 Transport Vulnerabilities. Please consult the included paper to further info.
 
-# Regular test
-
-Before beginning to test the vulnerabilities, one can run test scripts to 
 # Vuln 1
 
 ## Test regular
