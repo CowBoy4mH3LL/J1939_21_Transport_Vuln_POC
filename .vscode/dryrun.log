@@ -1,5 +1,5 @@
-make all --dry-run --always-make --keep-going --print-directory
-make: Entering directory '/home/subhojeet/MySoftware/J1939_21_Transport_Vuln_POC'
+make --dry-run --always-make --keep-going --print-directory
+make: Entering directory `/Users/subhojeet/Desktop/Projects/J1939_21_Transport_Vuln_POC'
 gcc -w -g -o build/main main.c -lm
-make: Leaving directory '/home/subhojeet/MySoftware/J1939_21_Transport_Vuln_POC'
+make: Leaving directory `/Users/subhojeet/Desktop/Projects/J1939_21_Transport_Vuln_POC'
  

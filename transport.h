@@ -9,11 +9,21 @@
 #include <math.h>
 #include "can_j1939.h"
 #include "conf.h"
+enum state{RCVD_RQST, SENT_RTS, SENT_CTS, CONN_ESTABLISHED} ;
+#define TPCM 0x00ec0000
+#define TPCM_MSG 0x18ECFF00
+#define TPDT 0x00eb0000
+#define RQST 0x00ea0000
+#define RTS 0x10
+#define CTS 0x11
+#define SRC_MASK 0x000000ff
+#define DST_MASK 0x0000ff00
+#define PF_MASK  0x00ff0000
 
 /* Globals */
 struct ConnectionInfo{
-    int type; //0 -> sending, 1 -> receiving
-    int state; //1 -> Sent RTS, 2 -> Sent CTS, 3 -> Connection established
+    int type; //0 -> sending, 1 -> receiving // Not used actively now
+    enum state state; //1 -> Sent RTS, 2 -> Sent CTS, 3 -> Connection established
     uint32_t pgn;
     uint16_t size;
     uint8_t num_packets;
@@ -80,14 +90,14 @@ void schedule_RTS_alarm(uint8_t** data_pointer){
 void create_or_update_session(int state, int type){
     if (connection_infos[src] == NULL){
         connection_infos[src] = malloc(sizeof(struct ConnectionInfo));
-        connection_infos[src]->state = 0;
+        connection_infos[src]->state = RCVD_RQST;
     }
 
-    if (connection_infos[src]->state == 3) /* Vuln 3. */
+    if (connection_infos[src]->state == CONN_ESTABLISHED) /* Vuln 3. */
         return;
 
     size = (int)ceil((float)size/7)*7; //scale size so we can fit the FF's and buffer overflows cannot be caused by sending less than 7 bytes of data in a single frame
-    if (connection_infos[src]->state == 2){
+    if (connection_infos[src]->state == SENT_CTS){
         /* Vuln 2. */
         connection_infos[src]->data = realloc(connection_infos[src]->data, size);
     }
@@ -120,13 +130,13 @@ void transport_setup(){
     memset(connection_infos, 0, NUM_DEVS*sizeof(struct ConnectionInfo));
     //Init default RTS
     RTS.can_dlc = 8;
-    RTS.can_id = 0x18ECFF00 | SRC;
+    RTS.can_id = TPCM_MSG | SRC;
     memset(RTS.data, 0xff, 8);
     RTS.data[0] = 0x10;
 
     //Init default CTS
     CTS.can_dlc = 8;
-    CTS.can_id = 0x18ECFF00 | SRC;
+    CTS.can_id = TPCM_MSG | SRC;
     memset(CTS.data, 0xff, 8);
     CTS.data[0] = 0x11;
     CTS.data[2] = 1;
@@ -134,17 +144,17 @@ void transport_setup(){
 
 void transport_handler(){
     //Get the sender
-    src = read_frame.can_id & 0x000000ff;
+    src = read_frame.can_id & SRC_MASK;
 
-    if (((read_frame.can_id & 0x0000ff00) >> 8) == SRC) { //TODO add broadcast support later
-        switch (read_frame.can_id & 0x00ff0000){
-            case 0x00ec0000: //TP.CM
+    if (((read_frame.can_id & DST_MASK) >> 8) == SRC) { //TODO add broadcast support later
+        switch (read_frame.can_id & PF_MASK){
+            case TPCM: //TP.CM
                 //Get the PGN
                 memcpy (&pgn, &read_frame.data[5], 3); 
                 pgn = bswap_32(pgn) >> 8;
 
                 switch (read_frame.data[0]) {
-                    case 0x10: //RTS recv, CTS send
+                    case RTS: //RTS recv, CTS send
                         //Get size and num_packets
                         memcpy(&size, &read_frame.data[1], 2);
                         size = bswap_16(size);
@@ -155,7 +165,7 @@ void transport_handler(){
                         // Create a session
                         create_or_update_session(2, 1);
 
-                        if (connection_infos[src]->state == 3){
+                        if (connection_infos[src]->state == CONN_ESTABLISHED){
                             printf("Duplicate connection request from SA = 0x%x. Not responding!!", src);
                             break;
                         }
@@ -165,21 +175,22 @@ void transport_handler(){
                         memcpy (&CTS.data[5], &read_frame.data[5], 3); 
                         can_write(&CTS, 1);
                         break;
-                    case 0x11: //CTS recieve, connection established
-                        if (connection_infos[src]->state == 1)
-                            connection_infos[src]->state = 3;
+                    case CTS: //CTS recieve, connection established
+                        if (connection_infos[src]->state == SENT_RTS)
+                            connection_infos[src]->state = CONN_ESTABLISHED;
                         
                         connection_infos[src]->data_pos = (read_frame.data[1] - 1)*7;
                         break;
                 }
                 break;
-            case 0x00eb0000: //Data recieve
+            case TPDT: //Data recieve
                 if (connection_infos[src] == NULL)
                     break;
-                if (connection_infos[src]->state == 2)
-                        connection_infos[src]->state = 3;
+
+                if (connection_infos[src]->state == SENT_CTS)
+                        connection_infos[src]->state = CONN_ESTABLISHED;
                 
-                if (connection_infos[src]->state == 3){
+                if (connection_infos[src]->state == CONN_ESTABLISHED){
                     connection_infos[src]->recv_num_packets++;
                     printf ("Recieved packet %d for connection with %d\n", connection_infos[src]->recv_num_packets, src);
                    
@@ -200,7 +211,7 @@ void transport_handler(){
                 }
                 break;
 
-            case 0x00ea0000: //Request recieve; RTS sent
+            case RQST: //Request recieve; RTS sent
                 //Get the PGN
                 memcpy (&pgn, &read_frame.data[0], 3); 
                 pgn = bswap_32(pgn) >> 8;
